@@ -70,7 +70,6 @@ const userNav: NavItem[] = [
 
 const adminNav: NavItem[] = [
   { title: "Dashboard", href: "/dashboard", icon: LayoutDashboard, minRole: "admin" },
-  { title: "Errors", href: "/errors", icon: AlertTriangle, minRole: "admin" },
   { title: "Evals", href: "/eval", icon: FlaskConical, minRole: "admin" },
   { title: "Insights", href: "/insights", icon: Lightbulb, minRole: "admin", requiresInsights: true },
   { title: "Users", href: "/users", icon: Users, minRole: "admin" },
@@ -93,7 +92,7 @@ const storeSub = (cb: () => void) => {
   return () => window.removeEventListener("storage", cb);
 };
 const getAuthSnap = () =>
-  `${localStorage.getItem("observal_access_token") ?? ""}|${getUserRole() ?? ""}|${getUserName() ?? ""}|${getUserEmail() ?? ""}|${getUserUsername() ?? ""}`;
+  `${sessionStorage.getItem("observal_access_token") ?? ""}|${getUserRole() ?? ""}|${getUserName() ?? ""}|${getUserEmail() ?? ""}|${getUserUsername() ?? ""}`;
 const getServerSnap = () => "||||";
 
 export function RegistrySidebar() {

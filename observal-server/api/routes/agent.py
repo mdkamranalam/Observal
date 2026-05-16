@@ -61,6 +61,7 @@ from schemas.agent import (
 )
 from services.agent_config_generator import generate_agent_config
 from services.audit_helpers import audit
+from services.config_generator import validate_mcp_command
 from services.editing_lock import _is_lock_expired, acquire_edit_lock, release_edit_lock
 from services.ide_feature_inference import compute_supported_ides, infer_required_features
 from services.registry_telemetry import emit_registry_event
@@ -285,6 +286,16 @@ async def create_agent(
                 ],
             )
 
+    # Validate external MCP commands for shell safety
+
+    for _mcp in req.external_mcps or []:
+        _cmd = _mcp.get("command", "") if isinstance(_mcp, dict) else getattr(_mcp, "command", "")
+        _args = _mcp.get("args", []) if isinstance(_mcp, dict) else getattr(_mcp, "args", [])
+        try:
+            validate_mcp_command(_cmd, _args or [])
+        except ValueError as e:
+            raise HTTPException(status_code=422, detail=f"Invalid MCP command: {e}")
+
     # Pre-check uniqueness before insert for a clean 409 (the DB constraint
     # remains the source of truth, but checking first avoids triggering an
     # IntegrityError mid-flush which would corrupt the savepoint state).
@@ -442,7 +453,9 @@ async def list_agents(
     from models.feedback import Feedback
 
     is_admin = False
-    skip_visibility = settings.DEPLOYMENT_MODE == "local"
+    # Skip visibility only for authenticated users in local mode (dev convenience).
+    # Anonymous callers always get the public-only filter regardless of mode.
+    skip_visibility = settings.DEPLOYMENT_MODE == "local" and current_user is not None
     if current_user:
         user_role_level = ROLE_HIERARCHY.get(current_user.role, 999)
         if user_role_level <= ROLE_HIERARCHY[UserRole.admin]:
@@ -769,6 +782,13 @@ async def update_agent(
             db.add(AgentTeamAccess(agent_id=agent.id, group_name=acc.group_name, permission=acc.permission))
 
     if req.external_mcps is not None:
+        for _mcp in req.external_mcps:
+            _cmd = getattr(_mcp, "command", "")
+            _args = getattr(_mcp, "args", [])
+            try:
+                validate_mcp_command(_cmd, _args or [])
+            except ValueError as e:
+                raise HTTPException(status_code=422, detail=f"Invalid MCP command: {e}")
         agent.external_mcps = [m.model_dump() for m in req.external_mcps]
 
     if req.components is not None:
@@ -934,8 +954,12 @@ async def install_agent(
         prefer_user_id=current_user.id,
         org_id=current_user.org_id,
     )
-    if not agent or (agent.status != AgentStatus.approved and agent.created_by != current_user.id):
-        raise HTTPException(status_code=404, detail="Agent not found or not active")
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+    if agent.status != AgentStatus.approved and not (
+        settings.ALLOW_DRAFT_INSTALL and agent.created_by == current_user.id
+    ):
+        raise HTTPException(status_code=404, detail="Agent not found or not approved for installation")
     if current_user.org_id is not None and agent.owner_org_id != current_user.org_id:
         raise HTTPException(status_code=404, detail="Agent not found")
     if get_effective_agent_permission(agent, current_user) == "none":
@@ -1545,6 +1569,13 @@ async def update_draft(
             setattr(version, field, val)
 
     if req.external_mcps is not None:
+        for _mcp in req.external_mcps:
+            _cmd = getattr(_mcp, "command", "")
+            _args = getattr(_mcp, "args", [])
+            try:
+                validate_mcp_command(_cmd, _args or [])
+            except ValueError as e:
+                raise HTTPException(status_code=422, detail=f"Invalid MCP command: {e}")
         version.external_mcps = [m.model_dump() for m in req.external_mcps]
 
     if req.components is not None:

@@ -63,3 +63,4 @@ migration/
 # Private packages (symlinked for local Docker builds)
 observal-insights/
 .observal/
+.pi-lens/

@@ -5,51 +5,45 @@
 
 """Insights plugin loader.
 
-The insights engine lives under ee/observal_insights/ and is only available
-when DEPLOYMENT_MODE=enterprise. If not in enterprise mode, all functions
-raise RuntimeError and INSIGHTS_AVAILABLE is False — the frontend hides the
-feature entirely.
+Controlled by the INSIGHTS_ENABLED env var (defaults to True when
+DEPLOYMENT_MODE=enterprise). Set INSIGHTS_ENABLED=false to disable explicitly.
+
+If enabled but the ee/ package is missing the import will fail loudly at
+startup rather than silently returning 402s.
 """
 
 from config import settings
 
-# Insights is only available in enterprise mode
-if settings.DEPLOYMENT_MODE == "enterprise":
-    try:
-        from ee.observal_insights import (
-            generate_report_content as _generate,
-        )
-        from ee.observal_insights import (
-            render_report_html as _render,
-        )
+INSIGHTS_AVAILABLE: bool = settings.INSIGHTS_AVAILABLE
 
-        INSIGHTS_AVAILABLE = True
-    except ImportError:
-        INSIGHTS_AVAILABLE = False
+if INSIGHTS_AVAILABLE:
+    from ee.observal_insights import generate_report_content as _generate
+    from ee.observal_insights import render_report_html as _render
 else:
-    INSIGHTS_AVAILABLE = False
+    _generate = None  # type: ignore[assignment]
+    _render = None  # type: ignore[assignment]
 
 
 def _not_available():
-    raise RuntimeError("Insights is an enterprise feature. Set DEPLOYMENT_MODE=enterprise to enable.")
+    raise RuntimeError("Insights is not enabled. Set INSIGHTS_ENABLED=true (or DEPLOYMENT_MODE=enterprise).")
 
 
 async def generate_report_content(*args, **kwargs):
     if not INSIGHTS_AVAILABLE:
         _not_available()
-    return await _generate(*args, **kwargs)
+    return await _generate(*args, **kwargs)  # type: ignore[misc]
 
 
 def render_report_html(*args, **kwargs):
     if not INSIGHTS_AVAILABLE:
         _not_available()
-    return _render(*args, **kwargs)
+    return _render(*args, **kwargs)  # type: ignore[misc]
 
 
 def configure_insights():
     """Wire up dependencies from the host app into the insights package.
 
-    Called once at server startup. No-op if not in enterprise mode.
+    Called once at server startup. No-op if not enabled.
     """
     if not INSIGHTS_AVAILABLE:
         return

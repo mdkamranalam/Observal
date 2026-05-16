@@ -74,6 +74,9 @@ class Settings(BaseSettings):
 
     # Git mirror storage (empty = system tempdir; set to shared path for multi-instance)
     GIT_MIRROR_BASE_PATH: str = ""
+    # Set to true to allow git clone and MCP analysis against internal/private hosts.
+    # For self-hosted GitLab, GitHub Enterprise, or Gitea on a private network.
+    ALLOW_INTERNAL_GIT_URLS: bool = False
 
     # Multi-instance startup: skip DDL when using a dedicated init container
     SKIP_DDL_ON_STARTUP: bool = False
@@ -81,6 +84,31 @@ class Settings(BaseSettings):
     # Rate limiting
     RATE_LIMIT_AUTH: str = "10/minute"
     RATE_LIMIT_AUTH_STRICT: str = "5/minute"
+    # Comma-separated list of trusted proxy IPs whose X-Forwarded-For header is trusted.
+    # Leave empty to never trust X-Forwarded-For (safest default).
+    TRUSTED_PROXY_IPS: list[str] = []
+
+    @field_validator("TRUSTED_PROXY_IPS", mode="before")
+    @classmethod
+    def parse_trusted_proxy_ips(cls, v: object) -> list[str]:
+        import ipaddress
+
+        if isinstance(v, str):
+            ips = [ip.strip() for ip in v.split(",") if ip.strip()]
+        elif isinstance(v, list):
+            ips = [str(i) for i in v]
+        else:
+            return []
+        validated: list[str] = []
+        for ip in ips:
+            try:
+                ipaddress.ip_address(ip)
+                validated.append(ip)
+            except ValueError:
+                import logging
+
+                logging.getLogger(__name__).warning("TRUSTED_PROXY_IPS: ignoring invalid IP %r", ip)
+        return validated
 
     # Agent Insights batch processing
     INSIGHT_BATCH_ENABLED: bool = True
@@ -105,6 +133,14 @@ class Settings(BaseSettings):
         if 0 < v < 7:
             raise ValueError("DATA_RETENTION_DAYS must be >= 7 to prevent accidental data loss")
         return v
+
+    # Agent install policy
+    ALLOW_DRAFT_INSTALL: bool = False
+    ENABLE_OPENAPI: bool = False  # expose /docs, /redoc, /openapi.json
+    ENABLE_METRICS: bool = False  # expose Prometheus /metrics endpoint
+
+    # Enable the Insights feature. Set INSIGHTS_AVAILABLE=true in .env to enable.
+    INSIGHTS_AVAILABLE: bool = False
 
     # Deployment mode
     DEPLOYMENT_MODE: Literal["local", "enterprise"] = "local"

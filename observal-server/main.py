@@ -98,6 +98,15 @@ async def _ensure_columns(conn):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # ── Unsafe-default guards (non-local deployments only) ─────────────────
+    if settings.DEPLOYMENT_MODE != "local":
+        weak_secrets = {"change-me-to-a-random-string", "changeme", "secret", "dev", ""}
+        if settings.SECRET_KEY in weak_secrets or len(settings.SECRET_KEY) < 32:
+            raise RuntimeError(
+                "SECRET_KEY is insecure. Set a random string of at least 32 characters "
+                "before running in non-local mode."
+            )
+
     if not settings.SKIP_DDL_ON_STARTUP:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
@@ -161,11 +170,15 @@ async def lifespan(app: FastAPI):
 
 
 # Create the FastAPI app
+_expose_openapi = settings.ENABLE_OPENAPI or settings.DEPLOYMENT_MODE == "local"
 app = FastAPI(
     title="Observal API",
     description="API for Observal Agents & Capabilities Hub",
     version="0.1.0",
     lifespan=lifespan,
+    docs_url="/docs" if _expose_openapi else None,
+    redoc_url="/redoc" if _expose_openapi else None,
+    openapi_url="/openapi.json" if _expose_openapi else None,
 )
 
 # Rate limiting
@@ -333,9 +346,11 @@ app.include_router(registry_models_router)
 app.include_router(support_router)
 
 # --- Prometheus metrics ---
-Instrumentator(
+_instrumentator = Instrumentator(
     excluded_handlers=["/livez", "/healthz", "/readyz", "/metrics"],
-).instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
+).instrument(app)
+if settings.ENABLE_METRICS or settings.DEPLOYMENT_MODE == "local":
+    _instrumentator.expose(app, endpoint="/metrics", include_in_schema=False)
 
 
 @app.get("/livez", include_in_schema=False)
